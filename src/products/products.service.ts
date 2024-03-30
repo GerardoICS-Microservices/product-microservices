@@ -1,14 +1,10 @@
-import {
-  Injectable,
-  OnModuleInit,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger, HttpStatus } from '@nestjs/common';
 
 import { PrismaClient } from '@prisma/client';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { RpcException } from '@nestjs/microservices';
 
 @Injectable()
 export class ProductsService extends PrismaClient implements OnModuleInit {
@@ -29,13 +25,16 @@ export class ProductsService extends PrismaClient implements OnModuleInit {
     const { page, limit } = paginationDto;
     const totalPages = await this.product.count({ where: { available: true } });
     const lastPage = Math.ceil(totalPages / limit);
+    const products = await this.product.findMany({
+      where: { available: true },
+      take: limit,
+      skip: (page - 1) * limit,
+    });
+
+    console.log('products', products);
 
     return {
-      data: this.product.findMany({
-        where: { available: true },
-        take: limit,
-        skip: (page - 1) * limit,
-      }),
+      data: products,
       meta: {
         page: page,
         total: totalPages,
@@ -46,11 +45,14 @@ export class ProductsService extends PrismaClient implements OnModuleInit {
 
   async findOne(id: number) {
     const product = await this.product.findFirst({
-      where: { id },
+      where: { id, available: true },
     });
 
     if (!product) {
-      throw new NotFoundException(`Product with id #${id} not found`);
+      throw new RpcException({
+        message: `Product with id #${id} not found`,
+        status: HttpStatus.BAD_REQUEST,
+      });
     }
 
     return product;
@@ -78,5 +80,31 @@ export class ProductsService extends PrismaClient implements OnModuleInit {
       where: { id },
       data: { available: false },
     });
+  }
+
+  async validateProducts(ids: number[]) {
+    //make sure to purge duplicated ids
+    const uniqueIds = [...new Set(ids)];
+
+    const products = await this.product.findMany({
+      where: {
+        id: {
+          in: uniqueIds,
+        },
+      },
+    });
+
+    //validate and throw error if any product is not found
+    if (products.length !== uniqueIds.length) {
+      const foundIds = products.map((product) => product.id);
+      const notFoundIds = uniqueIds.filter((id) => !foundIds.includes(id));
+
+      throw new RpcException({
+        message: `Products with ids ${notFoundIds.join(', ')} not found`,
+        status: HttpStatus.BAD_REQUEST,
+      });
+    }
+
+    return products;
   }
 }

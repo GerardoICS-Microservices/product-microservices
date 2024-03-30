@@ -30,3 +30,12 @@
 3. Create a .env file in the root of the project and add the following environment variables
 4. Execute prisma migration `npx prisma migrate dev`
 5. Run the project `npm run start:dev`
+
+
+## Nats
+
+Run the nats server with the following command
+
+```bash
+docker run -d --name nats-server -p 4222:4222 -p 8222:8222 nats
+```
