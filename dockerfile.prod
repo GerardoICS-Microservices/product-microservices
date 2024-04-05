@@ -1,0 +1,52 @@
+#? Dependencies
+FROM node:21-alpine3.19 as deps
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+RUN npm install
+
+
+#? Builder - Builds the application
+FROM node:21-alpine3.19 as build
+
+WORKDIR /usr/src/app
+
+##* Copying the dependencies from the previous stage
+COPY --from=deps /usr/src/app/node_modules ./node_modules
+
+##* Copying the source code
+COPY . .
+
+##* OPTIONAL - RUN TESTS
+# RUN npm run test
+
+RUN npm run build
+
+##* OPTIONAL - Clean node_modules and devDependencies
+RUN npm ci -f --only=production && npm cache clean --force
+
+##* generate the prisma client
+RUN npx prisma generate
+
+
+#? Create docker final image
+FROM node:21-alpine3.19 as prod
+
+WORKDIR /usr/src/app
+
+##* Copying the dependencies from the previous stage
+COPY --from=build /usr/src/app/node_modules ./node_modules
+
+##* Copying the build from the previous stage
+COPY --from=build /usr/src/app/dist ./dist
+COPY --from=build /usr/src/app/prisma ./prisma
+
+##* setting the environment for prod
+ENV NODE_ENV=production
+
+USER node
+
+EXPOSE 3000
+
+CMD ["node", "dist/main.js"]
